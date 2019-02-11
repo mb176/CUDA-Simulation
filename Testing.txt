@@ -1,0 +1,9 @@
+Testing section
+
+ Levy_Walk.go()
+    test if matrix of values adds up correctly
+    no nans, other errors
+ Fitting
+ Test: different seeds
+ arbitrary sample size
+ distribution right? check

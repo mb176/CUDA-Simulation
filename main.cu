@@ -4,78 +4,46 @@
 #include <vector>
 #include <time.h>
 #include <cmath>
+#include <cstdio>
 
 #include "LevyWalkSimulation.h"
+#include "d_LevyWalkGo.h"
+#include "cHelper.h"
+#include "vector_calculus.h"
+
+
+
 
 using namespace std;
 typedef vector<double> vec;
-//#include "test.h"
+
+
 
 int main(void)
 {
-  cout << "test" << endl;
-  //
-  // const int blocksize = 256;
-  // LevyWalk LW;
-  // //Set Physical Parameters
-  // LW.nu = 1;
-  // LW.gamma = 0.5;
-  // LW.eta = LW.nu;
-  //
-  // //experiment with distribution
-  //
-  // vec v(32,1);
-  // double *d_v;//=&v[0];
-  // cudaMalloc((void**)&d_v, v.size()*sizeof(double));
-  // cudaMemcpy(d_v, &v[0], v.size()*sizeof(double) , cudaMemcpyHostToDevice);
-  //
-  // LevyWalkGo<<<(v.size()-1)/blocksize+1, blocksize>>>
-  // (d_v,v.size(), time(NULL), LW.gamma, LW.nu, LW.eta, LW.t0, LW.c, LW.dim);
-  // cudaDeviceSynchronize();
-  // //Test: different seeds
-  // //arbitrary sample size
-  // //distribution right?
-  // cout << "test" << endl;
-  // for(int i= v.size()-1;i>=0; i--){
-  //   cout << v[i]<< endl;
-  // }
-  // cout << "stop" << endl;
-  //
-  // cudaMemcpy(&v[0], d_v, v.size()*sizeof(double) , cudaMemcpyDeviceToHost);
-  // //Sum up all blocks
-  // for(int i =1; i!= (v.size()+blocksize-1)/blocksize; i++){//(n+blockDim.x-1)/blockDim.x
-  //   v[0] += v[i*blocksize];
-  // }
-  //
-  // for(int i= v.size()-1;i>=0; i--){
-  //   cout << v[i]<< endl;
-  // }
-  //
-  // cout << "avr " << v[0]/v.size()<< endl;
-  //
-  //
-  // cudaFree(d_v);
-  //
-  //
-  //
-  // //Testing section
-  // // 0) test if member functions can be called globally
-  // // 1) Levy_Walk.go()
-  // // 2) Fitting
-  //
-  // //Initialize Simulation Block
-  // //name
-  // //dim
-  // //Run over every element of v_t_measure for each v_t_age
-  // //t_max, n_measure, v_t_measure
-  // //v_t_age
-  // //v_nu
-  // //v_gamma
-  // //eta
-  // //t_0
-  // //c
-  // //n_essemble
-  // //n_avr
-  //
-  // //Call Sim1.rum()
+
+  /* %%%%%%%%%%%%%%%% Configure Levy Walk Simulation %%%%%%%%%%%%%%%%%%%%%%%% */
+  LevyWalkSimulation LW;
+  //Aging and observation times
+  const int tMax(1000), tMin(1), taMax(0),taMin(0), nTimes(10000), nAgingTimes(1) ;
+  LW.calculateMeasurementTimes(tMax, tMin, nTimes, taMax, taMin, nAgingTimes);
+  //Model Parameters
+  LW.t0 = 1;
+  LW.c = 1;
+  LW.gamma = 0.98;
+  LW.nu = 1.5;
+  LW.eta = 1;
+  //Simulation parameters
+  LW.nParticles    = 100000; //Total size of the Essemble
+  LW.maxNParticles = 10000; //memory Breaks down if maxNparticles*nTimes*nAgingTimes = 10^9
+  LW.blocksize = 256; //For the kernel call, must bu multiple of 32;
+  /* %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
+
+  //Start Simulation
+  LW.LevyWalkGo();
+  LW.fitMSD(30);
+  LW.safeResult("Results/","auto","MSD");
+  cout << LW.MSDFitParameters[0] << endl;
+
+  return 1;
 }

@@ -1,21 +1,52 @@
-#ifndef LEVY_WALK_GUARD
-#define LEVY_WALK_GUARD
+#ifndef LevyWalkSimulation_GUARD
+#define LevyWalkSimulation_GUARD
 
-struct LevyWalk{
-  //Simulation Parameters
-  std::vector<double> tMeasure, tAge;
-  unsigned int n_essemble;
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <vector>
 
-  //Physical Parameters
-  double gamma, eta, nu;
-  int dim = 1; //No proper implementation of probability distribution for d>1
-  double t0 = 1;
-  double c = 1;
+
+
+class LevyWalkSimulation{
+public:
+  //Parameters
+  double nu, eta, gamma, t0, c; //Model Parameters
+  int blocksize, maxNParticles, nParticles;  //Simulation Parameters, maxNParticles defines how big an essemble can get
+  std::vector<double> times, agingTimes; //Measurement times
+
+  //Constructers;
+  LevyWalkSimulation(){create();};
+  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes){
+    create();
+    calculateMeasurementTimes( tMax,  tMin,  nTimes,  taMax,  taMin,  nAgingTimes);
+  };
+  void calculateMeasurementTimes(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes);
+  void create();
+
+  //Main routine
+  void LevyWalkGo();
+
+  //Results
+  std::vector<double> MSD, MSDaging;
+  std::vector<double> MSDFitParameters; //Set by fitMSD, [slope, offset, error]
+  std::vector<double> MSDAgingFitParameters; //Set by fitMSDaging, [slope, offset, error]
+  void clearResults();
+
+  //Fitting
+  double fitMSD(const int skipValues);
+  double fitMSDaging(const int skipValues);
+
+  //Output
+  std::ofstream safeResult(std::string path, std::string filename, std::string type);
+    // type is MSD or MSD aging, depending on what you want to safe
+    // for filename = "auto" the name gets generated automatically
+
+  private:
+      int uninitialisedValue = -1; //To check if user has set the parameters
+      bool parameterTestSuccessful(void); //To test parameters
+      std::vector<double> createParameterVector(std::string type); //To communicate with plotScript.py via safeResult
 };
-
-
-__global__ void LevyWalkGo(double * , int, int, double gamma,
-  double nu, double eta, double t0, double c, int dim);
-
 
 #endif
