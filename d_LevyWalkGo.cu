@@ -43,10 +43,21 @@ __device__ double measurePosition(double measurementTime, double oldTime,
   return oldPosition+direction*length;
 }
 
+__device__ int positionToBin(double position, uint nBins, double histogramRange){
+  int binIdx;
+  if(abs(position)>histogramRange){
+    binIdx = nBins-1;
+  } else {
+    //Take absoulute value of position since it is symmetric
+    binIdx = floor(abs(position)/(histogramRange/nBins));
+  }
+  return binIdx;
+}
+
 __global__ void d_LevyWalkGo(double* d_SD, int nSD,
   int nParticles, int seed, double gamma,  double nu, double eta, double t0,
-  double c, double* d_times, const int nTimes,
-  const double* d_agingTimes, const int nAgingTimes){
+  double c, double* d_times, const int nTimes, const double* d_agingTimes,
+  const int nAgingTimes, int *d_bins, uint nBins, double histogramRange){
   /* Input explainations:
   -d_SD: is a vecor containing the squared displacements SDs for all Essemble elements and all measurement
   times, so [<SDs at t0>, <SDs at t1>,...]
@@ -70,6 +81,7 @@ __global__ void d_LevyWalkGo(double* d_SD, int nSD,
   double newTime=0;
   double oldPosition = 0;
   double newPosition = 0;
+  double startPosition = 0; //Set at beginning of each observation
   int stepCount=0;
   for(int taIdx = 0; taIdx != nAgingTimes; taIdx++){
     for(int timeIdx = 0; timeIdx != nTimes; timeIdx++){
@@ -86,18 +98,23 @@ __global__ void d_LevyWalkGo(double* d_SD, int nSD,
       //Find position at measurement time
       position = measurePosition(measurementTime, oldTime,
            oldPosition, newTime, newPosition,
-          nu, eta, c);
+           nu, eta, c);
+
+      if(timeIdx==0){//Start of observation?
+        startPosition = position;
+      }
 
 
-      //Add new SD value
+      //Add new SD and bin value
       measurementIdx = taIdx * nTimes+timeIdx;
       SDIdx = measurementIdx*nParticles+threadIndex;
-      d_SD[SDIdx] = position*position;
+      d_SD[SDIdx] = (position-startPosition)*(position-startPosition);
+      d_bins[SDIdx] = positionToBin(position-startPosition, nBins, histogramRange);
     }// end loop time
   }// end loop tAge
   }
 
-  // Reduction over blockSD and write result in d_subtotalSD
+  //Reduction d_SD
   {//Loop variables:
   int measurementIdx;
   for(int taIdx = 0; taIdx != nAgingTimes; taIdx++){

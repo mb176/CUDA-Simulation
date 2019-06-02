@@ -34,26 +34,35 @@ class LevyWalkSimulation{
 public:
   //Parameters
   double nu, eta, gamma, t0, c; //Model Parameters
-  int blocksize, maxNParticles, nParticles;  //Simulation Parameters, maxNParticles defines how big an essemble can get
+  int blocksize; // #number of threads per block in call of d_LevyWalkGo
+  int maxNParticles; //defines how big an essemble can get before it is split up
+  int nParticles; //total number of particles to be simulated
   std::vector<double> times, agingTimes; //Measurement times
 
   //Constructers;
   LevyWalkSimulation(){create();};
-  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes){
+  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes, uint nBins, double histogramRange){
     create();
     calculateMeasurementTimes( tMax,  tMin,  nTimes,  taMax,  taMin,  nAgingTimes);
+    initialiseHistogram(nBins, histogramRange);
   };
   void calculateMeasurementTimes(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes);
+  void initialiseHistogram(uint nBins, uint histogramRange);
   void create();
 
   //Main routine
   void LevyWalkGo();
 
-  //Results
+  // MSD
   std::vector<double> MSD, MSDaging;
   std::vector<double> MSDFitParameters; //Set by fitMSD, [slope, offset, error]
   std::vector<double> MSDAgingFitParameters; //Set by fitMSDaging, [slope, offset, error]
   void clearResults();
+
+  // Histogram
+  uint nBins;
+  double histogramRange;
+  std::vector<std::vector<int>>  histograms; //histograms[measurementTime][bin]
 
   //Fitting
   double fitMSD(const int skipValues);
@@ -63,6 +72,7 @@ public:
   std::ofstream safeResult(std::string path, std::string filename, std::string type);
     // type is "MSD" or "MSDaging", depending on what you want to safe
     // for filename = "auto" the name gets generated automatically
+  std::ofstream safeHistogram(int agingTimeIdx, std::string path, std::string filename);
 
 
 private:
@@ -92,6 +102,46 @@ void LevyWalkSimulation::calculateMeasurementTimes(double tMax, double tMin, int
     range(times, tMin, tMax);
     agingTimes.resize(nAgingTimes);
     range(agingTimes, taMin , taMax);
+}
+
+double analyticPredictionOrdinary(double nu, double eta, double gamma){
+  if(nu<=0 || eta <= 0 || gamma <= 0){
+    throw domain_error("Can't give Prediction: Parameters are not positive.");
+  }
+
+  if(gamma <= 2*(nu-eta)) {
+    cout << "MSD does not converge for these parameters" << endl;
+  }
+  if(gamma < 1){
+    if(2*nu < gamma){
+      return gamma;
+    } else if ( 2*nu >= gamma){
+      return 2*nu;
+    }
+  } else if (gamma >= 1){
+    if(2*nu < gamma){
+      return 1;
+    } else if ( 2*nu >= gamma){
+      return 2*nu-gamma+1;
+    }
+  }
+  return -1; //To check if all cases are covered
+}
+
+void LevyWalkSimulation::initialiseHistogram(uint numberOfBins, uint histogramrange){
+  if(times.size()==0){
+    cerr << "Can't initialse histogram: times vector not set." << endl;
+    return;
+  }
+  if(agingTimes.size()==0){
+    cerr << "Can't initialse histogram: agingTimes vector not set." << endl;
+    return;
+  }
+  nBins = numberOfBins;
+  histogramRange = histogramrange;
+  //Construct histogram matrix:
+  vector<int> histogram(nBins,0);
+  histograms.resize(times.size()*agingTimes.size(),histogram);
 }
 
 bool LevyWalkSimulation::parameterTestSuccessful(void){
@@ -131,6 +181,11 @@ bool LevyWalkSimulation::parameterTestSuccessful(void){
             return false;
         }
     }
+    //Histograms initialised?
+    if(histograms.size()==0 || histograms[0].size()==0){
+      cerr << "Error: Histograms was not initialised" << endl;
+      return false;
+    }
 
     //All good
     return true;
@@ -139,6 +194,7 @@ bool LevyWalkSimulation::parameterTestSuccessful(void){
 void LevyWalkSimulation::LevyWalkGo(){
     //Barricades
     if(parameterTestSuccessful()!=true){
+        cerr << "Can't start Levy Walk: Parameter test unsuccessful." << endl;
         return;
     }
 
@@ -148,6 +204,7 @@ void LevyWalkSimulation::LevyWalkGo(){
     //Vectors to Save MSD
     vec subtotalSD(nMeasurements,0);
     vec totalMSD(nMeasurements,0);
+
 
     //Split the Essemble into parts that the memory can handle
     int nEssembles = (nParticles-1)/maxNParticles + 1;
@@ -174,20 +231,25 @@ void LevyWalkSimulation::LevyWalkGo(){
         double * d_agingTimes = vectorToDevice(&agingTimes[0], agingTimes.size());
         double * d_times = vectorToDevice(&times[0], times.size());
 
-        //Create squared displacement (SD) Vectors
-        vec SD(nEntries,0);
+        //Create squared displacement (SD) and bins vectors
+        vec SD(nEntries,1);
         double* d_SD = vectorToDevice(&SD[0],nEntries);
+        vector<int> bins(nEntries,0);
+        int * d_bins;
+        cudaError(cudaMalloc((void**)&d_bins, nEntries*sizeof(int)) );
+        cudaError(cudaMemcpy(d_bins, &bins[0], nEntries*sizeof(int) ,cudaMemcpyHostToDevice));
 
         //Let essembleSize Walkers walk and record their SD
         d_LevyWalkGo<<<(essembleSize-1)/blocksize+1, blocksize>>>
             (d_SD, nEntries, essembleSize, time(NULL), gamma, nu, eta, t0, c, d_times, times.size(),
-            d_agingTimes, agingTimes.size()) ;
+            d_agingTimes, agingTimes.size(), d_bins, nBins, histogramRange) ;
 
-
-
-        //Retrieve SD from device
+        //Retrieve SD and bins from device
         cudaError(cudaDeviceSynchronize());
         cudaError(cudaMemcpy(&SD[0], d_SD, nEntries*sizeof(double) , cudaMemcpyDeviceToHost));
+        cudaError(cudaMemcpy(&bins[0], d_bins, nEntries*sizeof(int) , cudaMemcpyDeviceToHost));
+
+
 
         //Sum over the current Enssemble and store it in subtotalSD
         {
@@ -205,13 +267,30 @@ void LevyWalkSimulation::LevyWalkGo(){
         }
         }
 
+        //Sum subtotalSD to totalMSD
+        add(totalMSD, subtotalSD, totalMSD);
+
+        //Insert bins into the histograms
+        {
+        int binIdx, measurementIdx;
+        for(int taIdx = 0; taIdx!=agingTimes.size(); taIdx++){
+          for(int timeIdx = 0; timeIdx!=times.size(); timeIdx++){
+            measurementIdx = taIdx * times.size() + timeIdx;
+            for(int particleIdx = 0; particleIdx!=essembleSize; particleIdx++){
+              binIdx = bins[measurementIdx*essembleSize+particleIdx];
+              histograms[measurementIdx][binIdx]++;
+            }
+          }
+        }
+        }
+
         //Free memory
         cudaFree(d_agingTimes);
         cudaFree(d_times);
         cudaFree(d_SD);
+        cudaFree(d_bins);
 
-        //Sum subtotalSD to totalMSD
-        add(totalMSD, subtotalSD, totalMSD);
+
 
     }//End loop over essembles
     }
@@ -236,9 +315,9 @@ double LevyWalkSimulation::fitMSD(const int skipValues){
     if(MSD.size()!= times.size() ){
         throw domain_error("Can't fit; MSDaging not yet calculated");
     }
-    if(*min_element(times.begin(),times.end())<=0){
+    if(*min_element(times.begin()+skipValues,times.end())<=0){
         throw domain_error("Can't fit; Nonpositive measurement times");
-    } else if (*min_element(MSD.begin(),MSD.end())<=0){
+    } else if (*min_element(MSD.begin()+skipValues,MSD.end())<=0){
         throw domain_error("Can't fit; MSD has nonpositive values");
     }
     vec x,y;
@@ -252,15 +331,15 @@ double LevyWalkSimulation::fitMSD(const int skipValues){
 
 double LevyWalkSimulation::fitMSDaging(const int skipValues){
     if(MSDaging.size()!= agingTimes.size() ){
-        throw domain_error("MSDaging not yet calculated");
+        throw domain_error("Can't fit; MSDaging not yet calculated");
     }
-    if(*min_element(agingTimes.begin(),agingTimes.end())<=0){
+    if(*min_element(agingTimes.begin()+skipValues,agingTimes.end())<=0){
         throw domain_error("Can't fit; Nonpositive aging times");
-    } else if (*min_element(MSDaging.begin(),MSDaging.end())<=0){
+    } else if (*min_element(MSDaging.begin()+skipValues,MSDaging.end())<=0){
         throw domain_error("Can't fit; MSDaging has nonpositive values");
     }
     vec x,y;
-    for(int idx = skipValues; idx!=times.size(); idx++){
+    for(int idx = skipValues; idx!=agingTimes.size(); idx++){
       x.push_back(agingTimes[idx]);
       y.push_back(MSDaging[idx]);
     }
@@ -276,7 +355,7 @@ void LevyWalkSimulation::clearResults(){
 }
 
 std::ofstream LevyWalkSimulation::safeResult(string path, string filename, string type)
-{// type is MSD or MSD aging, depending on what you want to safe
+{// type is "MSD" or "MSDaging", depending on what you want to safe
  // for filename = "auto" the name gets generated automatically
 
     // Write data matrix [time,MSD, parameters]
@@ -317,6 +396,49 @@ std::ofstream LevyWalkSimulation::safeResult(string path, string filename, strin
     }
 
     return write(completePath, data);
+}
+
+std::ofstream LevyWalkSimulation::safeHistogram(int agingTimeIdx, std::string path, std::string filename){
+  if(agingTimeIdx>=agingTimes.size()){
+    throw domain_error("Can't save histogram: agingTimeIdx out of bounds.");
+  }
+  //Create complete path
+  string completePath;
+  if(filename == "auto"){
+      std::ostringstream name;
+      name << std::setprecision(2) << "histogram" << "_gamma_"<<gamma<<"_nu_"<<nu<<"_ta_"<<agingTimes.back()<<".txt";//<<"_exp_"<<MSDFitParameters[0]
+      completePath = path + name.str();
+  } else {
+      completePath = path + filename;
+  }
+
+  ofstream outfile(completePath);
+
+  //Cut off empty bins
+  int cutOff = 0;
+  for(int timeIdx=0; timeIdx!=times.size(); timeIdx++){
+    for(int idx = nBins-1; idx!= 0; idx--){
+      if (histograms[agingTimeIdx*times.size()+timeIdx][idx]!=0){
+        if(cutOff<idx){ cutOff = idx;}
+        break;
+      }
+    }
+  }
+
+  //Write x values (use middle of each bin)
+  for(int i = 0; i!= cutOff; i++){
+    outfile << i*histogramRange/nBins+histogramRange/nBins/2 << " ";
+  }
+  outfile << endl;
+
+  //Write normalised histogramm for each time out of times:
+  for(int timeIdx=0; timeIdx!=times.size(); timeIdx++){
+    for(int i = 0; i!= cutOff; i++){
+      outfile << double(histograms[agingTimeIdx*times.size()+timeIdx][i])/nParticles<< " ";
+    }
+    outfile << endl;
+  }
+  return outfile;
 }
 
 std::vector<double> LevyWalkSimulation::createParameterVector(string type){

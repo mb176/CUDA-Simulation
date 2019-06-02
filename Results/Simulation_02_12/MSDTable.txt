@@ -1,0 +1,3 @@
+Simulation mit 10000 Teilchen; tMax = 4500; taMax = 100000
+
+Pretty sweet agreement, at most 0.1 difference and there you can already see that the correct value is approached for larger times
