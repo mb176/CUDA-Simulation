@@ -37,7 +37,7 @@ public:
   int blocksize; // #number of threads per block in call of d_LevyWalkGo
   int maxNParticles; //defines how big an essemble can get before it is split up
   int nParticles; //total number of particles to be simulated
-  std::vector<double> times, agingTimes; //Measurement times
+  std::vector<double> times, agingTimes; //For every agingTime the position will be measured for every time;
 
   //Constructers;
   LevyWalkSimulation(){create();};
@@ -52,6 +52,15 @@ public:
 
   //Main routine
   void LevyWalkGo();
+  // General Idea: First we split all the particles into essembles that the
+  // device memory can handle; We then hand a vector SD to the device, where every thread has
+  // spots to write down its squared displacement for every measurement time (for every
+  // agingTime for every time). Every thread simulates one particle and writes down
+  // its SD. Each block performs a reduction so that the sum
+  // of the MSDs is in its first entry. On the host we add up these entries for
+  // every essemble and then over all ensemble, divide by nParticles and obtain
+  // the MSD.
+  //The threads also indicate their position in the bin vector for Histograms
 
   // MSD
   std::vector<double> MSD, MSDaging;
@@ -62,6 +71,7 @@ public:
   // Histogram
   uint nBins;
   double histogramRange;
+  double maximalDistance();
   std::vector<std::vector<int>>  histograms; //histograms[measurementTime][bin]
 
   //Fitting
@@ -137,6 +147,8 @@ void LevyWalkSimulation::initialiseHistogram(uint numberOfBins, uint histogramra
     cerr << "Can't initialse histogram: agingTimes vector not set." << endl;
     return;
   }
+  //Delete previous histograms
+  histograms = {};
   nBins = numberOfBins;
   histogramRange = histogramrange;
   //Construct histogram matrix:
@@ -192,6 +204,8 @@ bool LevyWalkSimulation::parameterTestSuccessful(void){
 }
 
 void LevyWalkSimulation::LevyWalkGo(){
+
+
     //Barricades
     if(parameterTestSuccessful()!=true){
         cerr << "Can't start Levy Walk: Parameter test unsuccessful." << endl;
@@ -216,7 +230,7 @@ void LevyWalkSimulation::LevyWalkGo(){
     int nEntries;
 
     for(int essembleIdx = 0; essembleIdx != nEssembles; essembleIdx++){
-        //Set Essemble size
+        //Set current essemble size
         if(essembleIdx == nEssembles-1){
             essembleSize = nParticles - (nEssembles-1)*maxNParticles;
         } else {
@@ -406,7 +420,7 @@ std::ofstream LevyWalkSimulation::safeHistogram(int agingTimeIdx, std::string pa
   string completePath;
   if(filename == "auto"){
       std::ostringstream name;
-      name << std::setprecision(2) << "histogram" << "_gamma_"<<gamma<<"_nu_"<<nu<<"_ta_"<<agingTimes.back()<<".txt";//<<"_exp_"<<MSDFitParameters[0]
+      name << std::setprecision(2) << "histogram" << "_gamma_"<<gamma<<"_nu_"<<nu<< "_eta_"<<eta<<"_ta_"<<agingTimes.back()<<".txt";//<<"_exp_"<<MSDFitParameters[0]
       completePath = path + name.str();
   } else {
       completePath = path + filename;
@@ -426,16 +440,17 @@ std::ofstream LevyWalkSimulation::safeHistogram(int agingTimeIdx, std::string pa
   }
 
   //Write x values (use middle of each bin)
-  for(int i = 0; i!= cutOff; i++){
+  for(int i = 0; i!= cutOff+1; i++){
     outfile << i*histogramRange/nBins+histogramRange/nBins/2 << " ";
   }
   outfile << endl;
 
   //Write normalised histogramm for each time out of times:
   for(int timeIdx=0; timeIdx!=times.size(); timeIdx++){
-    for(int i = 0; i!= cutOff; i++){
+    for(int i = 0; i!= cutOff+1; i++){
       outfile << double(histograms[agingTimeIdx*times.size()+timeIdx][i])/nParticles<< " ";
     }
+
     outfile << endl;
   }
   return outfile;
@@ -465,4 +480,107 @@ std::vector<double> LevyWalkSimulation::createParameterVector(string type){
     parameters[4] = nu;
     parameters[5] = eta;
     return parameters;
+}
+
+double LevyWalkSimulation::maximalDistance(){
+  //runs levyWalkGo() for fewer particles and measures the maximum Distance totalMax;
+  int nParticlesBAK = nParticles;
+  nParticles = 5000;
+  int blocksizeBAK = blocksize;
+  blocksize =1; //To avoid reduction on GPU
+  double totalMax=0;
+
+  //Barricades
+  if(parameterTestSuccessful()!=true){
+      cerr << "Can't start Levy Walk: Parameter test unsuccessful." << endl;
+      return 0;
+  }
+
+  //Constants
+  const int nMeasurements = times.size()*agingTimes.size();
+
+  //Vectors to Save MSD
+  vec subtotalSD(nMeasurements,0);
+  vec totalMSD(nMeasurements,0);
+
+
+  //Split the Essemble into parts that the memory can handle
+  int nEssembles = (nParticles-1)/maxNParticles + 1;
+
+  //Loop over all Essembles
+  {
+  int essembleSize;
+  int nBlocks;
+  int nEntries;
+
+  for(int essembleIdx = 0; essembleIdx != nEssembles; essembleIdx++){
+      //Set current essemble size
+      if(essembleIdx == nEssembles-1){
+          essembleSize = nParticles - (nEssembles-1)*maxNParticles;
+      } else {
+          essembleSize = maxNParticles;
+      }
+
+      //Local Constants
+      nBlocks = (essembleSize-1)/blocksize+1;
+      nEntries = essembleSize * nMeasurements;
+
+      //copy agingTimes and measurementTimes to device:
+      double * d_agingTimes = vectorToDevice(&agingTimes[0], agingTimes.size());
+      double * d_times = vectorToDevice(&times[0], times.size());
+
+      //Create squared displacement (SD) and bins vectors
+      vec SD(nEntries,1);
+      double* d_SD = vectorToDevice(&SD[0],nEntries);
+      vector<int> bins(nEntries,0);
+      int * d_bins;
+      cudaError(cudaMalloc((void**)&d_bins, nEntries*sizeof(int)) );
+      cudaError(cudaMemcpy(d_bins, &bins[0], nEntries*sizeof(int) ,cudaMemcpyHostToDevice));
+
+      //Let essembleSize Walkers walk and record their SD
+      d_LevyWalkGo<<<(essembleSize-1)/blocksize+1, blocksize>>>
+          (d_SD, nEntries, essembleSize, time(NULL), gamma, nu, eta, t0, c, d_times, times.size(),
+          d_agingTimes, agingTimes.size(), d_bins, nBins, histogramRange) ;
+
+      //Retrieve SD and bins from device
+      cudaError(cudaDeviceSynchronize());
+      cudaError(cudaMemcpy(&SD[0], d_SD, nEntries*sizeof(double) , cudaMemcpyDeviceToHost));
+      cudaError(cudaMemcpy(&bins[0], d_bins, nEntries*sizeof(int) , cudaMemcpyDeviceToHost));
+
+
+
+      //Find biggest squared displacement in the essemble and store it in subtotalSD
+      {
+      double  essembleMax=0;
+      int measurementIdx;
+      for(int taIdx = 0; taIdx != agingTimes.size(); taIdx++){
+        for(int timeIdx = 0; timeIdx != times.size(); timeIdx++){
+          measurementIdx = taIdx * times.size() + timeIdx;
+          for(int blockIdx=0; blockIdx!=nBlocks; blockIdx++){
+            essembleMax= max(essembleMax,SD[measurementIdx*essembleSize+blockIdx*blocksize]);
+          }
+          subtotalSD[measurementIdx]=essembleMax;
+        }
+      }
+      }
+
+      //Find biggest SD for all ensembles at final time and agingTime
+      uint finalIdx = agingTimes.size()*times.size()-1;
+      totalMax = max(subtotalSD[finalIdx],totalMax);
+
+      //Free memory
+      cudaFree(d_agingTimes);
+      cudaFree(d_times);
+      cudaFree(d_SD);
+      cudaFree(d_bins);
+  }//End loop over essembles
+  }
+
+  //Reset all the changes in LevyWalkSimulation
+  nParticles = nParticlesBAK;
+  blocksize = blocksizeBAK;
+  clearResults();
+
+  totalMax = pow(totalMax,0.5);
+  return totalMax;
 }

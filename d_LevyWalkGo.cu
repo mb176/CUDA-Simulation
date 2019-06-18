@@ -10,7 +10,7 @@
 using namespace std;
 
 __device__ void nextStep(const double oldTime, const double oldPosition, double& newTime,
-    double& newPosition, double gamma,  double nu, double eta, double t0,
+    double& newPosition, double gamma,  double nu, double t0,
     double c, curandState_t &state){
 
 
@@ -91,7 +91,7 @@ __global__ void d_LevyWalkGo(double* d_SD, int nSD,
       while(newTime <= measurementTime ){
         oldTime = newTime; oldPosition = newPosition;
         //Get new Position and time:
-        nextStep(oldTime, oldPosition, newTime, newPosition, gamma, nu, eta, t0, c, state);
+        nextStep(oldTime, oldPosition, newTime, newPosition, gamma, nu, t0, c, state);
         stepCount++;
       }
 

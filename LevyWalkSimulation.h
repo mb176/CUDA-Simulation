@@ -41,6 +41,7 @@ public:
   // Histogram
   uint nBins;
   double histogramRange;
+  double maximalDistance();
   std::vector<std::vector<int>>  histograms;
 
 

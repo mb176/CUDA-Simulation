@@ -1,0 +1,8 @@
+Simulation mit 1000000000 Teilchen; tMax = 20000; taMax = 0
+
+Notes:
+-eta > nu: peaks verschwinden
+-eta < nu: extreme Streuung? Numerischer Fehler? -> versuche mehr teilchen & weniger bins?
+-eta = nu: groesseres gamma (1.3) sorgt fuer viel schnelleren Abfall der PDF,
+-gamma = 1.3, nu=0.8, eta=0.8: groesseres gamma (1.3) sorgt fuer viel schnelleren Abfall der PDF,
+  kaum unterschied zu eta = 1 (da delta peak viel kleiner)
