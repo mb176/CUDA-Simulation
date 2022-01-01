@@ -1,0 +1,1 @@
+Simulation mit  100000 Teilchen; tMax = 2; taMax = 0; nBins = 1

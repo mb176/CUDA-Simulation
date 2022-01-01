@@ -6,6 +6,9 @@
 #include <cmath>
 #include <cstdio>
 #include <sstream>
+#include <chrono>
+#include <iomanip>
+#include <thread>
 
 #include "LevyWalkSimulation.h"
 #include "d_LevyWalkGo.h"
@@ -13,81 +16,96 @@
 #include "vector_calculus.h"
 #include "fitting.h"
 
-
-
-
-
 using namespace std;
 typedef vector<double> vec;
-
-
 
 int main(void)
 {
 
-  /* %%%%%%%%%%%%%%%% Configure Static parameters %%%%%%%%%%%%%%%%%%%%%%%% */
-  //Aging and observation times
-  const int tMax(20000), tMin(0), taMax(0),taMin(0), nTimes(10), nAgingTimes(1) ; //needs at least one aging and one measurement time
-  //Histogram parameters
-  uint nBins = 10000;
-  double histogramRange = pow(10,8); //doesn't matter, reset before start of the simulation
-  //Initialise Simulation:
-  LevyWalkSimulation LW(tMax, tMin, nTimes, taMax, taMin, nAgingTimes, nBins, histogramRange);
-  //Model Parameters
-  LW.t0 = 1; //Characteristic timescale
-  LW.c = 1; //Constant Velocity prefactor
-  //Simulation parameters
-  LW.nParticles    = pow(10,9); //Total size of the Essemble
-  LW.maxNParticles = 2000; //memory Breaks down if maxNparticles*nTimes*nAgingTimes = 10^9
-  LW.blocksize = 256; //For the kernel call, must be multiple of 32;
-  string targetFolder = "Results/Histogram_06_12/";
-  /* %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
+  //Loop over parameters
+  vec gamma = {1.5};
+  vec nu= {0.4,0.8,1.5};
+  vec eta = {-0.2,0,0.2};
 
-  //Varying Parameters
+  //Output Folder and metaData filename
+  string targetFolder = "Results/Simulation_06_26/";
+  string MetaFileName = "MetaData2.txt";
+  ofstream metaFile(targetFolder+MetaFileName);
 
-  vec gamma = {1.3};
-  vec nu= {1.3};
-  vec eta = {1.1,1.3,1.5};
-
-  {
-  stringstream MetaFileName;
-  MetaFileName << "Metadata_"<< "gamma_" <<LW.gamma << "_nu_" <<LW.nu << "_eta_" << LW.eta;
-  ofstream output(targetFolder+MetaFileName.str());
-  output << "Simulation mit  "<< LW.nParticles << " Teilchen; tMax = " << tMax << "; taMax = " << taMax << endl;
   for(int nuIdx = 0; nuIdx != nu.size(); nuIdx++ ){
     for(int gammaIdx = 0; gammaIdx != gamma.size(); gammaIdx++ ){
       for(int etaIdx = 0; etaIdx != eta.size(); etaIdx++){
-
-        //Set parameters Dynamically
+/* %%%%%%%%%%%%%%%% Configure simulation parameters %%%%%%%%%%%%%%%%%%%%%%%% */
+        //Aging and observation times
+        const int tMax(1000), tMin(0), taMax(100000),taMin(0), nTimes(20), nAgingTimes(20) ; //needs at least one aging and one measurement time
+        //Initialise Simulation:
+        LevyWalkSimulation LW(tMax, tMin, nTimes, taMax, taMin, nAgingTimes);
+        //Model Parameters
+        LW.t0 = 1; //Characteristic timescale
+        LW.c = 1; //Constant Velocity prefactor
         LW.nu = nu[nuIdx];
-        LW.eta = eta[etaIdx];
+        LW.eta = nu[nuIdx]+eta[etaIdx];
         LW.gamma = gamma[gammaIdx];
-
-
-
-        // Find histogramRange appropriate for theses Parameters
-        // histogramRange = LW.c/2 * pow(10000,analyticPredictionOrdinary(LW.nu, LW.eta, LW.gamma));
-        double maxDistance = LW.maximalDistance(); //How for do 5000 particles get with this setup?
-
-        histogramRange = 1.5*maxDistance;
+        //Simulation parameters
+        LW.nParticles    = pow(10,5); //Total size of the Essemble
+        LW.maxNParticles = 2048; //GPU memory breaks down if maxNparticles*nTimes*nAgingTimes = 3*10^9
+        LW.blocksize = 256; //For the kernel call, must be multiple of 32;
+        //Histogram parameters
+        uint nBins = 1;
+        double maxDistance =3;//LW.maximalDistance(); //How for do 5000 particles travel with this setup?
+        double histogramRange = 1.5*maxDistance; //Estimate HistgramRange (needs nu, eta, gamma, etc.)
+        //Initialise Histogram
         LW.initialiseHistogram(nBins, histogramRange);
+  /* %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
 
+        //Write parameters into file
+        if(nuIdx == 0 && gammaIdx == 0 && etaIdx==0){
+          metaFile << "Simulation mit  "<< LW.nParticles << " Teilchen; tMax = " << tMax << "; taMax = " << taMax << "; nBins = " << nBins<< endl;
+        }
         //Start Simulation
+        auto start = chrono::steady_clock::now();
         LW.LevyWalkGo();
-        // LW.fitMSD(1); //gives number of values to skip
-        LW.safeHistogram(0,targetFolder,"auto");
-        // LW.fitMSDaging(1); //gives number of values to skip
-        // LW.safeResult(targetFolder,"auto","MSD");
-        // LW.safeResult(targetFolder,"auto","MSDaging");
-        // output << "Gamma: " << LW.gamma << "; nu: " << LW.nu << "; t: "
-        // << LW.MSDFitParameters[0]  << "; ta: " << LW.MSDAgingFitParameters[0] << endl;
-        cout << "Walk done!" << endl;
+        auto end = chrono::steady_clock::now();
+        cout << "Simulation duration: " << chrono::duration_cast<chrono::seconds>(end-start).count() << " s" <<endl;
+
+        // Histogram
+        // LW.safeHistogram(0,targetFolder,"auto")
+
+        //Find analytical predictions for the t and ta dependence
+        double tExponentPrediction = 0;
+        double taExponentPrediction = 0;
+        if(taMax > tMax){
+          std::vector<double> vecTemp = LW.analyticPredictionAged();
+          tExponentPrediction = vecTemp[0];
+      # #Run executable directly
+# ./$ex# #Run executable directly
+# ./$executableName
+# # Create detached screen session on computer and run it there
+# screen -d -m -S simulation ./$executableNameecutableName
+# # Create detached screen session on computer and run it there
+# screen -d -m -S simulation ./$executableName    taExponentPrediction = vecTemp[1];
+        } else {
+          tExponentPrediction = LW.analyticPredictionOrdinary();
+        }
+
+        //Time dependence of the MSD (needs ntimes>1)
+        LW.fitMSD(3); //gives number of values to skip
+        LW.safeResult(targetFolder,"auto","MSD");
+        metaFile << std::setprecision(3) << "Gamma: " << LW.gamma << "; nu: "
+                 << LW.nu << "; eta: " << LW.eta << ": t-exp: "<< LW.MSDFitParameters[0]
+                 << " (" << tExponentPrediction << ",Chi^2=" << LW.MSDFitParameters[2] <<") ";
+
+        //Aging time dependence of the MSD (needs nAgingTimestimes>1 and taMax/nAgingTimes>tMax)
+        LW.fitMSDaging(3); //gives number of values to skip
+        LW.safeResult(targetFolder,"auto","MSDaging");
+        metaFile << "; ta-exp: " << LW.MSDAgingFitParameters[0]
+                 << "( "<< taExponentPrediction << ",chi=" << LW.MSDAgingFitParameters[2] <<")";
+
+
+        metaFile << endl;
       } // end eta loop
     } //end nu loop
   } //end gamma loop
-  }
-
-
 
   return 1;
 }

@@ -1,0 +1,4 @@
+Simulation mit  100000 Teilchen; tMax = 10; taMax = 0; nBins = 1
+10 20 50 100 200 500 1000 2000 5000 10000 50000 100000 # duration of observation
+0.166757 0.120159 0.0450996 0.0824052 0.0622476 0.0362382 0.0333598 0.0395372 0.0272019 0.0243234 0.00146272 0.00448136 # deviation of the fitted exponent from the true value
+-0.398555 -0.803574 # Exponent and prefactor of the fit of the deviation

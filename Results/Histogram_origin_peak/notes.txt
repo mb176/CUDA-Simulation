@@ -1,0 +1,11 @@
+Everything except the gamma=1.5, eta = 1.4 plot fits the predictions from
+the estimate of the PDF at the origin.
+The fits for the peak height don't really follow the t^-gamma pattern from the
+very rough estimate and should probably not be shown. However we see that
+the histogram for large gamma has barely any peak at all, which shows that it is
+qualitatively right.
+In total that means we have 4 possible peaks whose size is manged by the gamma:
+ - eta != nu: no peak
+ - eta = nu < 1: Peak but finite pdf behind it (smaller when gamma larger)
+ - eta = nu > 1: Sharp peak, nothing behind it
+ - very large gamma: peak almost non-existant

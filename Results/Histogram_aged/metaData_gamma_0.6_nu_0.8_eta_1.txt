@@ -1,0 +1,1 @@
+Simulation mit  1000000000 Teilchen; tMax = 5000; taMax = 100000; nBins = 1000 ; gamma: 0.6 ;nu: 0.8

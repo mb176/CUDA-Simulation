@@ -1,0 +1,10 @@
+Simulation mit  100000 Teilchen; tMax = 20000; taMax = 0; nBins = 1
+Gamma: 0.6; nu: 0.5; eta: 0.3: t-exp: 0.992 (1,Chi^2=0.0195) 
+Gamma: 0.6; nu: 0.5; eta: 0.5: t-exp: 0.997 (1,Chi^2=7.33e-05) 
+Gamma: 0.6; nu: 0.5; eta: 0.7: t-exp: 1 (1,Chi^2=0.00191) 
+Gamma: 0.6; nu: 1.5; eta: 1.3: t-exp: 2.85 (3,Chi^2=0.0113) 
+Gamma: 0.6; nu: 1.5; eta: 1.5: t-exp: 3.01 (3,Chi^2=0.00973) 
+Gamma: 0.6; nu: 1.5; eta: 1.7: t-exp: 2.98 (3,Chi^2=0.0124) 
+Gamma: 0.6; nu: 2.5; eta: 2.3: t-exp: 4.98 (5,Chi^2=0.000259) 
+Gamma: 0.6; nu: 2.5; eta: 2.5: t-exp: 4.99 (5,Chi^2=0.0045) 
+Gamma: 0.6; nu: 2.5; eta: 2.7: t-exp: 4.97 (5,Chi^2=0.00639) 

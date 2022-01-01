@@ -18,16 +18,13 @@ public:
 
   //Constructers;
   LevyWalkSimulation(){create();};
-  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes, uint nBins, double histogramRange){
+  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes){
     create();
     calculateMeasurementTimes( tMax,  tMin,  nTimes,  taMax,  taMin,  nAgingTimes);
-    initialiseHistogram(nBins, histogramRange);
   };
   void calculateMeasurementTimes(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes);
   void initialiseHistogram(uint nBins, uint histogramRange);
   void create();
-
-
 
   //Main routine
   void LevyWalkGo();
@@ -44,6 +41,9 @@ public:
   double maximalDistance();
   std::vector<std::vector<int>>  histograms;
 
+  //Analytic results
+  double analyticPredictionOrdinary();
+  std::vector<double> analyticPredictionAged();
 
   //Fitting
   double fitMSD(const int skipValues);
@@ -61,6 +61,6 @@ public:
       std::vector<double> createParameterVector(std::string type); //To communicate with plotScript.py via safeResult
 };
 
-double analyticPredictionOrdinary(double nu, double eta, double gamma);
+
 
 #endif

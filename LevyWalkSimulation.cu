@@ -41,10 +41,9 @@ public:
 
   //Constructers;
   LevyWalkSimulation(){create();};
-  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes, uint nBins, double histogramRange){
+  LevyWalkSimulation(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes){
     create();
     calculateMeasurementTimes( tMax,  tMin,  nTimes,  taMax,  taMin,  nAgingTimes);
-    initialiseHistogram(nBins, histogramRange);
   };
   void calculateMeasurementTimes(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes);
   void initialiseHistogram(uint nBins, uint histogramRange);
@@ -74,6 +73,10 @@ public:
   double maximalDistance();
   std::vector<std::vector<int>>  histograms; //histograms[measurementTime][bin]
 
+  //Analytic results
+  double analyticPredictionOrdinary();
+  std::vector<double> analyticPredictionAged();
+
   //Fitting
   double fitMSD(const int skipValues);
   double fitMSDaging(const int skipValues);
@@ -83,7 +86,6 @@ public:
     // type is "MSD" or "MSDaging", depending on what you want to safe
     // for filename = "auto" the name gets generated automatically
   std::ofstream safeHistogram(int agingTimeIdx, std::string path, std::string filename);
-
 
 private:
     int uninitialisedValue = -1; //To check if user has set the parameters
@@ -100,7 +102,7 @@ void LevyWalkSimulation::create(){
     c = uninitialisedValue;
     nParticles = uninitialisedValue;
     blocksize = 256;
-    maxNParticles = 1000000;
+    maxNParticles = 2048;
 }
 
 void LevyWalkSimulation::calculateMeasurementTimes(double tMax, double tMin, int nTimes, double taMax, double taMin, int nAgingTimes){
@@ -112,16 +114,18 @@ void LevyWalkSimulation::calculateMeasurementTimes(double tMax, double tMin, int
     range(times, tMin, tMax);
     agingTimes.resize(nAgingTimes);
     range(agingTimes, taMin , taMax);
+    return;
 }
 
-double analyticPredictionOrdinary(double nu, double eta, double gamma){
+double LevyWalkSimulation::analyticPredictionOrdinary(){
+  //Barricades
   if(nu<=0 || eta <= 0 || gamma <= 0){
     throw domain_error("Can't give Prediction: Parameters are not positive.");
   }
-
   if(gamma <= 2*(nu-eta)) {
-    cout << "MSD does not converge for these parameters" << endl;
+    cerr << "MSD does not converge for these parameters" << endl;
   }
+
   if(gamma < 1){
     if(2*nu < gamma){
       return gamma;
@@ -136,6 +140,44 @@ double analyticPredictionOrdinary(double nu, double eta, double gamma){
     }
   }
   return -1; //To check if all cases are covered
+}
+
+std::vector<double> LevyWalkSimulation::analyticPredictionAged(){
+  //Barricades
+  if(nu<=0 || eta <= 0 || gamma <= 0){
+    throw domain_error("Can't give Prediction: Parameters are not positive.");
+  }
+  if(gamma <= 2*(nu-eta)) {
+    cout << "MSD does not converge for these parameters" << endl;
+  }
+
+  double tExponent=-1; // totest if any cases were left out
+  double taExponent=-1;
+  if(gamma < 1){
+    if(2*nu < gamma){
+      tExponent = 1;
+      taExponent = gamma-1;
+    } else if ( 2*nu >= gamma && 2*nu < gamma+1){
+      tExponent = 2*nu-gamma+1;
+      taExponent = gamma-1;
+    } else if ( 2*nu >= gamma +1){
+      tExponent = 2;
+      taExponent = 2*nu-2;
+    }
+  } else if (gamma >= 1){
+    if(2*nu < gamma){
+      tExponent = 1;
+      taExponent = 0;
+    } else if ( 2*nu >= gamma && 2*nu < gamma+1){
+      tExponent = 2*nu-gamma+1;
+      taExponent = 0;
+    } else if ( 2*nu >= gamma +1){
+      tExponent = 2;
+      taExponent = 2*nu-1-gamma;
+    }
+  }
+  vector<double> prediction = {tExponent, taExponent};
+  return prediction; //To check if all cases are covered
 }
 
 void LevyWalkSimulation::initialiseHistogram(uint numberOfBins, uint histogramrange){
@@ -204,8 +246,6 @@ bool LevyWalkSimulation::parameterTestSuccessful(void){
 }
 
 void LevyWalkSimulation::LevyWalkGo(){
-
-
     //Barricades
     if(parameterTestSuccessful()!=true){
         cerr << "Can't start Levy Walk: Parameter test unsuccessful." << endl;
@@ -219,7 +259,6 @@ void LevyWalkSimulation::LevyWalkGo(){
     vec subtotalSD(nMeasurements,0);
     vec totalMSD(nMeasurements,0);
 
-
     //Split the Essemble into parts that the memory can handle
     int nEssembles = (nParticles-1)/maxNParticles + 1;
 
@@ -229,7 +268,9 @@ void LevyWalkSimulation::LevyWalkGo(){
     int nBlocks;
     int nEntries;
 
+    // split nParticles into small ensemble to keep computation duration of CUDA calls low
     for(int essembleIdx = 0; essembleIdx != nEssembles; essembleIdx++){
+
         //Set current essemble size
         if(essembleIdx == nEssembles-1){
             essembleSize = nParticles - (nEssembles-1)*maxNParticles;
@@ -245,10 +286,10 @@ void LevyWalkSimulation::LevyWalkGo(){
         double * d_agingTimes = vectorToDevice(&agingTimes[0], agingTimes.size());
         double * d_times = vectorToDevice(&times[0], times.size());
 
-        //Create squared displacement (SD) and bins vectors
+        //Create squared displacement (SD) and bins vector (for histogram)
         vec SD(nEntries,1);
         double* d_SD = vectorToDevice(&SD[0],nEntries);
-        vector<int> bins(nEntries,0);
+        vector<int> bins(nEntries,0); //saves the number of the bin the particle is in at the measurement time
         int * d_bins;
         cudaError(cudaMalloc((void**)&d_bins, nEntries*sizeof(int)) );
         cudaError(cudaMemcpy(d_bins, &bins[0], nEntries*sizeof(int) ,cudaMemcpyHostToDevice));
@@ -262,8 +303,6 @@ void LevyWalkSimulation::LevyWalkGo(){
         cudaError(cudaDeviceSynchronize());
         cudaError(cudaMemcpy(&SD[0], d_SD, nEntries*sizeof(double) , cudaMemcpyDeviceToHost));
         cudaError(cudaMemcpy(&bins[0], d_bins, nEntries*sizeof(int) , cudaMemcpyDeviceToHost));
-
-
 
         //Sum over the current Enssemble and store it in subtotalSD
         {
@@ -304,8 +343,6 @@ void LevyWalkSimulation::LevyWalkGo(){
         cudaFree(d_SD);
         cudaFree(d_bins);
 
-
-
     }//End loop over essembles
     }
 
@@ -326,14 +363,19 @@ void LevyWalkSimulation::LevyWalkGo(){
     }
 
 double LevyWalkSimulation::fitMSD(const int skipValues){
+    //Barricades
+    if(MSD.size()-skipValues <=2){
+      throw domain_error("Can't fit: to few MSD data points");
+    }
     if(MSD.size()!= times.size() ){
-        throw domain_error("Can't fit; MSDaging not yet calculated");
+        throw domain_error("Can't fit; MSD not yet calculated");
     }
     if(*min_element(times.begin()+skipValues,times.end())<=0){
         throw domain_error("Can't fit; Nonpositive measurement times");
     } else if (*min_element(MSD.begin()+skipValues,MSD.end())<=0){
         throw domain_error("Can't fit; MSD has nonpositive values");
     }
+
     vec x,y;
     for(int idx = skipValues; idx!=times.size(); idx++){
       x.push_back(times[idx]);
@@ -344,6 +386,11 @@ double LevyWalkSimulation::fitMSD(const int skipValues){
 }
 
 double LevyWalkSimulation::fitMSDaging(const int skipValues){
+    //Barricades
+    if(MSDaging.size() <=2+ skipValues){
+      cerr<<"Can't fit: to few data points for MSDaging"<< endl;
+      return -1;
+    }
     if(MSDaging.size()!= agingTimes.size() ){
         throw domain_error("Can't fit; MSDaging not yet calculated");
     }
@@ -357,6 +404,7 @@ double LevyWalkSimulation::fitMSDaging(const int skipValues){
       x.push_back(agingTimes[idx]);
       y.push_back(MSDaging[idx]);
     }
+
     MSDAgingFitParameters = exponent_fit(x, y);
     return MSDAgingFitParameters[0];
 }
@@ -368,8 +416,8 @@ void LevyWalkSimulation::clearResults(){
   MSDAgingFitParameters.clear(); //Set by fitMSDaging, [slope, offset, error]
 }
 
-std::ofstream LevyWalkSimulation::safeResult(string path, string filename, string type)
-{// type is "MSD" or "MSDaging", depending on what you want to safe
+std::ofstream LevyWalkSimulation::safeResult(string path, string filename, string type){
+ // type is "MSD" or "MSDaging", depending on what you want to safe
  // for filename = "auto" the name gets generated automatically
 
     // Write data matrix [time,MSD, parameters]
@@ -403,7 +451,7 @@ std::ofstream LevyWalkSimulation::safeResult(string path, string filename, strin
     string completePath;
     if(filename == "auto"){
         std::ostringstream name;
-        name << std::setprecision(2) << type << "_gamma_"<<gamma<<"_nu_"<<nu<<"_ta_"<<agingTimes.back()<<".txt";//<<"_exp_"<<MSDFitParameters[0]
+        name << std::setprecision(2) << type << "_gamma_"<<gamma<<"_nu_"<<nu << "_eta_"<<eta<<"_ta_"<<agingTimes.back()<<".txt";//<<"_exp_"<<MSDFitParameters[0]
         completePath = path + name.str();
     } else {
         completePath = path + filename;
@@ -427,6 +475,10 @@ std::ofstream LevyWalkSimulation::safeHistogram(int agingTimeIdx, std::string pa
   }
 
   ofstream outfile(completePath);
+
+  //Write parameters into the first line
+  outfile << gamma << " " << nu << " " << eta << " " << *(times.end()-1) << *(agingTimes.end()-1)
+          << " # gamma, nu, eta, tMax, taMax" << endl;
 
   //Cut off empty bins
   int cutOff = 0;
@@ -461,15 +513,15 @@ std::vector<double> LevyWalkSimulation::createParameterVector(string type){
     std::vector<double> parameters;
     if(type == "MSD"){
         parameters.resize(MSD.size());
-        if(MSD.size() <6){
-            throw domain_error("Can't save: MSD has less then 6 entries");
+        if(MSD.size() <7){
+            throw domain_error("Can't save: MSD has less then 7 entries");
         }
         parameters[0] = 1; //1 For MSD, 2 for MSD aging
         parameters[1] = MSDFitParameters[0];
         parameters[2] = MSDFitParameters[1];
     } else if (type == "MSDaging"){
-        if(MSDaging.size() <6){
-            throw domain_error("Can't save: MSDaging has less then 6 entries");
+        if(MSDaging.size() <7){
+            throw domain_error("Can't save: MSDaging has less then 7 entries");
         }
         parameters.resize(MSDaging.size());
         parameters[0] = 2; //1 For MSD, 2 for MSD aging
@@ -479,6 +531,24 @@ std::vector<double> LevyWalkSimulation::createParameterVector(string type){
     parameters[3] = gamma;
     parameters[4] = nu;
     parameters[5] = eta;
+
+    //Find analytical predictions for the t and ta dependence
+    double tExponentPrediction = 0;
+    double taExponentPrediction = 0;
+    if(*max_element(agingTimes.begin(),agingTimes.end()) > *max_element(times.begin(),times.end())){
+      std::vector<double> vecTemp = analyticPredictionAged();
+      tExponentPrediction = vecTemp[0];
+      taExponentPrediction = vecTemp[1];
+    } else {
+      tExponentPrediction = analyticPredictionOrdinary();
+    }
+
+    //Safe analytic prediction
+    if(type == "MSD"){
+      parameters[6] = tExponentPrediction;
+    } else if(type == "MSDaging"){
+      parameters[6] = taExponentPrediction;
+    }
     return parameters;
 }
 
