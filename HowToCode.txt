@@ -1,7 +1,0 @@
-/* Manner of problem attacking:
-1. Understand well, what to do, make it clear to you
-2. Pseudocode all functions you need, until the solution seems comprehensive
-3. Write down tests for each function
-4. Test
-5. Finish the function
-	 */
